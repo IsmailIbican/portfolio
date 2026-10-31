@@ -1,0 +1,45 @@
+# dependencies
+node_modules/
+
+# build output
+.next/
+out/
+dist/
+coverage/
+playwright-report/
+test-results/
+
+# environment (only .env.example is committed)
+.env
+.env.*
+!.env.example
+
+# local tooling
+.sample-backup.json
+*.log
+.DS_Store
+Thumbs.db
+
+# uploads (runtime media is stored in object storage, not git; .uploads is the local dev store)
+public/uploads/
+.uploads/
+
+# generated Prisma client (rebuilt by `npm run db:generate` / postinstall)
+src/generated/
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Prisma local databases
+*.db
+
+# production secrets, uploaded to Vercel by a script, never committed
+secrets.production.env
+
+# personal source material and screenshots, never committed
+content-input/
+*.png
+
+.vercel
+.env*

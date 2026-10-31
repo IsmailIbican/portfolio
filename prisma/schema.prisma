@@ -1,0 +1,198 @@
+// Source of truth for the data model. Keep docs/database-schema.md in sync.
+// Blog models (Article, Tag, ArticleTag) arrive with v1.1.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AdminRole {
+  ADMIN
+}
+
+enum PublishStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum TechnologyCategory {
+  LANGUAGE
+  FRONTEND
+  BACKEND
+  DATABASE
+  DEVOPS
+  TOOL
+}
+
+enum ContactStatus {
+  NEW
+  READ
+  ARCHIVED
+}
+
+model AdminUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  role         AdminRole @default(ADMIN)
+  lastLoginAt  DateTime?
+  /// Consecutive failed logins; reset on success. Drives the temporary lockout.
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
+  /// Bumped on logout and password change; sessions carrying an older value are rejected.
+  sessionVersion   Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+/// Single-row table (id is always "singleton"). Every field is optional: nothing is invented.
+model Profile {
+  id             String   @id @default("singleton")
+  fullName       String?
+  headline       String?
+  statement      String?  @db.Text
+  bio            String?  @db.Text
+  location       String?
+  contactEmail   String?
+  githubUsername String?
+  linkedinUrl    String?
+  xUrl           String?
+  websiteUrl     String?
+  cvUrl          String?
+  avatarUrl      String?
+  updatedAt      DateTime @updatedAt
+}
+
+/// Single-row table (id is always "singleton").
+model SiteSettings {
+  id                  String    @id @default("singleton")
+  siteTitle           String?
+  siteDescription     String?
+  ogImageUrl          String?
+  githubLastSyncAt    DateTime?
+  githubLastSyncError String?
+  updatedAt           DateTime  @updatedAt
+}
+
+model Project {
+  id                 String              @id @default(cuid())
+  slug               String              @unique
+  title              String
+  summary            String
+  overview           String?             @db.Text
+  problem            String?             @db.Text
+  solution           String?             @db.Text
+  architecture       String?             @db.Text
+  implementation     String?             @db.Text
+  challenges         String?             @db.Text
+  results            String?             @db.Text
+  status             PublishStatus       @default(DRAFT)
+  featured           Boolean             @default(false)
+  sortOrder          Int                 @default(0)
+  repoUrl            String?
+  liveUrl            String?
+  /// "owner/name" when the project is linked to a GitHub repository; null for manual projects.
+  githubRepo         String?             @unique
+  githubStars        Int?
+  githubLanguage     String?
+  githubPushedAt     DateTime?
+  githubSyncedAt     DateTime?
+  publishedAt        DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  media              ProjectMedia[]
+  technologies       ProjectTechnology[]
+
+  @@index([status, featured, sortOrder])
+  @@index([status, publishedAt])
+}
+
+model ProjectMedia {
+  id        String   @id @default(cuid())
+  projectId String
+  url       String
+  alt       String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, sortOrder])
+}
+
+model Technology {
+  id          String              @id @default(cuid())
+  name        String              @unique
+  slug        String              @unique
+  category    TechnologyCategory
+  /// Shown in the "key skills" area of the home page.
+  isKeySkill  Boolean             @default(false)
+  sortOrder   Int                 @default(0)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  projects    ProjectTechnology[]
+
+  @@index([category, sortOrder])
+}
+
+model ProjectTechnology {
+  projectId    String
+  technologyId String
+  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  technology   Technology @relation(fields: [technologyId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, technologyId])
+  @@index([technologyId])
+}
+
+model Experience {
+  id          String        @id @default(cuid())
+  company     String
+  role        String
+  location    String?
+  startDate   DateTime      @db.Date
+  endDate     DateTime?     @db.Date
+  description String        @db.Text
+  status      PublishStatus @default(DRAFT)
+  sortOrder   Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([status, startDate])
+}
+
+model Education {
+  id          String        @id @default(cuid())
+  institution String
+  degree      String
+  field       String?
+  startDate   DateTime      @db.Date
+  endDate     DateTime?     @db.Date
+  description String?       @db.Text
+  status      PublishStatus @default(DRAFT)
+  sortOrder   Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([status, startDate])
+}
+
+model ContactSubmission {
+  id        String        @id @default(cuid())
+  name      String
+  email     String
+  message   String        @db.Text
+  status    ContactStatus @default(NEW)
+  /// Salted hash only; raw IP addresses are never stored. Cleared after the rate-limit window (one hour).
+  ipHash    String?
+  /// SHA-256 of the one-time form token this message was sent with; a second use of the same token is refused.
+  formTokenHash String? @unique
+  createdAt DateTime      @default(now())
+
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@index([ipHash, createdAt])
+}

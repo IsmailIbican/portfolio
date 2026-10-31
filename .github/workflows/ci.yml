@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: portfolio
+          POSTGRES_PASSWORD: portfolio
+          POSTGRES_DB: portfolio_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U portfolio -d portfolio_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    # Throwaway values for this disposable database; nothing here is a real secret.
+    env:
+      DATABASE_URL: postgresql://portfolio:portfolio@localhost:5432/portfolio_test
+      TEST_DATABASE_URL: postgresql://portfolio:portfolio@localhost:5432/portfolio_test
+      AUTH_SECRET: ci-only-auth-secret-not-used-anywhere-else-0123456789
+      NEXT_PUBLIC_SITE_URL: https://ci.example.com
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply migrations to the test database
+        run: npm run db:deploy
+
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run test:integration
+      - run: npm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    # The E2E run creates, migrates and seeds its own database (portfolio_e2e) on this server.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: portfolio
+          POSTGRES_PASSWORD: portfolio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U portfolio"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      E2E_DATABASE_URL: postgresql://portfolio:portfolio@localhost:5432/portfolio_e2e
+      # Only the build reads these; every page is rendered per request, so no query runs while building.
+      DATABASE_URL: postgresql://portfolio:portfolio@localhost:5432/postgres
+      AUTH_SECRET: ci-only-auth-secret-not-used-anywhere-else-0123456789
+      NEXT_PUBLIC_SITE_URL: https://ci.example.com
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install the browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Build and run the end-to-end tests
+        run: npm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
